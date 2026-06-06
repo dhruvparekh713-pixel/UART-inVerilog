@@ -20,10 +20,12 @@ module buadRateGen #(
             tick <= 1'b0;
         end else if (counter == DIVISIOR - 1) begin // reseting counter
             counter = 0;
-            tick = 1'b1;
-        end else begin // increments count and keeps tick = 0 (which is utilized because of the 16x Over sample)
-            counter <= counter +1;
+            tick = 1'b1; // makes tick 1 to show that 1/16 of baud cycle is complete, which the TX and RX keep tack of
+        end else begin 
+            counter <= counter + 1;
             tick <= 1'b0;
+            // increments count and keeps tick = 0, so the TX and RX don't increment thier count, and instead
+            // the counter increments to show that the cycle is moving forwards towards DIVISOR 
         end
         
     end
