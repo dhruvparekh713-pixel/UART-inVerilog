@@ -1,8 +1,7 @@
-module uartReciever
-    (
-        #parameter databits = 8
-    )
-    (
+module uartReciever #(
+    parameter databits = 8
+)
+(
     input wire clk, 
     input wire tick, //16x oversampled enable from baudRateGen 
     input wire rst_n, 
@@ -29,21 +28,17 @@ module uartReciever
             IDLE : if(!rxIn) nextState = START;
 
             START: begin 
-                if(tickCounter == MID) begin 
-                    if(!rxIn)begin
-                         nextState = DATA
-                    end
-                    else nextState = IDLE
-                end
+                if(tick && tickCounter == MID && rxIn) nextState = IDLE;
+                else if(tick && tickCounter == LAST) nextState = DATA;
             end
 
             DATA: begin
-                if(tick && tickCounter == LAST && dataCounter == databits - 1) state = STOP
+                if(tick && tickCounter == LAST && dataCounter == databits - 1) nextState = STOP;
             end
 
-            STOP: if(tick ** tickCounter == LAST) nextState = IDLE;
+            STOP: if(tick && tickCounter == LAST) nextState = IDLE;
 
-            deafult nextState = IDLE // safety
+            default: nextState = IDLE; // safety
         endcase
     end
 
@@ -56,9 +51,55 @@ module uartReciever
             shiftreg <= 0;
             dataOut <= 0;
             dataReady <= 1'b0;
-            framingError <= 1'b01;
+            framingError <= 1'b0;
         end else begin 
-            satte <= nextState;
+            state <= nextState;
+            dataReady <= 1'b0; //default low; pulses high for a cycle
 
+            case(nextState)
+                IDLE:tickCounter <= 0;
+            
+                START: begin 
+                    if(state == IDLE) begin
+                        tickCounter <= 0;
+                        dataCounter <= 0;
+                    end else if (tick) begin
+                        if(tickCounter == LAST) tickCounter <= 0;
+                        else tickCounter <= tickCounter+1;
+                    end
+                end
+
+                DATA: begin 
+                    if (state == START) begin 
+                        tickCounter <= 0;
+                        dataCounter <= 0;
+                    end else if (tick)begin
+                        if(tickCounter == MID) begin 
+                            shiftreg <= {rxIn,shiftreg[databits-1:1]}; // sample at the middle of the bit cycle
+                            tickCounter <= tickCounter + 1;
+                        end else if (tickCounter == LAST) begin 
+                            tickCounter <= 0;
+                            dataCounter <= dataCounter +1;
+                        end else begin
+                            tickCounter <= tickCounter +1;
+                        end   
+                    end
+                end
+
+                STOP:begin 
+                    if(state == DATA) begin 
+                        tickCounter <= 0;
+                    end else if(tick) begin 
+                        if (tickCounter == MID) begin
+                            framingError <= ~rxIn; // stop bit has to be high flag otherwise
+                            dataOut <= shiftreg; // shift reg holds the 8 recieved bits
+                            dataReady <= 1'b1;
+                        end
+                        if(tickCounter == LAST) tickCounter <= 0;
+                        else tickCounter <= tickCounter + 1;
+                    end
+                end
+            endcase
         end
     end
+endmodule
