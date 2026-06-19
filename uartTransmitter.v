@@ -1,18 +1,21 @@
-module uartTransmitter(
+module uartTransmitter 
+    #(
+        parameter databits = 8
+    )(
     input wire clk,
     input wire tick,
     input wire rst_n,
     input wire startTrigger,
-    input wire [7:0] dataBits,
+    input wire [databits-1:0] dataBits,
     output reg txOut,
     output reg busy
 );
     localparam IDLE = 2'b00, START = 2'b01, DATA = 2'b10, STOP = 2'b11;
 
     reg[1:0] state, nextState;
-    reg[3:0] tickCounter;
-    reg[2:0] dataCounter;
-    reg[7:0] shiftReg; 
+    reg[3:0] tickCounter; // counts the oversampled ticks
+    reg[2:0] dataCounter; // counts the data bits from 0 to 7 in this case
+    reg[databits-1:0] shiftReg; // holds the byte being shifted out
 
   
     always @(*)begin 
@@ -48,19 +51,18 @@ module uartTransmitter(
                 IDLE: begin 
                     txOut <= 1'b1;
                     busy <= 1'b0;
-                    if(startTrigger) begin 
-                        shiftReg <= dataBits;
-                        busy <= 1'b1;
-                        tickCounter <= 0;
-                    end
                 end
 
                 START:begin 
                     txOut <= 1'b0;
-                    if (tick) begin 
+                    if(state == IDLE) begin 
+                        shiftReg <= dataBits;
+                        busy <= 1'b1;
+                        tickCounter <= 0;
+                        dataCounter <= 0;
+                    end else if (tick) begin 
                         if(tickCounter == 15) begin 
                             tickCounter <= 0;
-                            dataCounter <= 0;
                         end else begin
                             tickCounter <= tickCounter +1;
                         end
@@ -68,12 +70,16 @@ module uartTransmitter(
                 end
 
                 DATA:begin 
-                    txOut <= shiftReg[0]; // put LSB onto the line
-                    if(tick) begin 
+                    if (state == START) begin
+                        txOut <= shiftReg[0]; // put LSB onto the line
+                        tickCounter <= 0;
+                        dataCounter <= 0;
+                    end else if(tick) begin 
                         if(tickCounter == 15) begin 
                             tickCounter <= 0;
                             shiftReg <= shiftReg >> 1;
                             dataCounter <= dataCounter +1;
+                            txOut <= shiftReg[1];
                         end else begin 
                             tickCounter <= tickCounter + 1;
                         end
@@ -82,7 +88,9 @@ module uartTransmitter(
 
                 STOP:begin 
                     txOut <= 1'b1;
-                    if(tick) begin 
+                    if (state == DATA) begin
+                        tickCounter <= 0; 
+                    end else if(tick) begin 
                         if(tickCounter == 15) begin 
                             tickCounter <= 0;
                             busy <= 1'b0;
